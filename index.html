@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>ERA5 Forecast Explorer</title>
+  <meta name="theme-color" content="#070a10">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='14' fill='%23070a10'/%3E%3Cpath d='M6 13c5-4 9 3 14 0s5-4 6-4M6 20c5-4 9 3 14 0s5-4 6-4' fill='none' stroke='%237cf5ff' stroke-width='2.4' stroke-linecap='round'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@5.6.0/dist/maplibre-gl.css">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body class="booting">
+  <div id="map" aria-label="Forecast map"></div>
+  <div class="vignette" aria-hidden="true"></div>
+
+  <!-- Layers & legend -->
+  <header class="panel glass" id="panel-main">
+    <div class="brand">
+      <svg class="brand-mark" viewBox="0 0 40 40" aria-hidden="true">
+        <defs>
+          <linearGradient id="bm" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0" stop-color="#7cf5ff"/><stop offset="1" stop-color="#8b7bff"/>
+          </linearGradient>
+        </defs>
+        <circle cx="20" cy="20" r="18" fill="none" stroke="url(#bm)" stroke-width="1.2" opacity=".35"/>
+        <circle class="orbit" cx="20" cy="20" r="18" fill="none" stroke="url(#bm)" stroke-width="1.6" stroke-linecap="round" stroke-dasharray="26 88"/>
+        <path d="M9 17c5.5-4.5 10 3.200 15.500 0S29.500 13 31 13M9 24.500c5.500-4.500 10 3.200 15.500 0s5-4 6.500-4" fill="none" stroke="url(#bm)" stroke-width="2.200" stroke-linecap="round"/>
+      </svg>
+      <div class="brand-text">
+        <h1>ERA5 <span>Forecast Explorer</span></h1>
+        <p id="tagline">0.25° global · IFS initialised from ERA5</p>
+      </div>
+      <button class="icon-btn" id="btn-collapse" title="Collapse panel" aria-label="Collapse panel" aria-expanded="true">
+        <svg viewBox="0 0 16 16"><path d="M4 10l4-4 4 4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+    </div>
+
+    <div class="panel-body">
+      <div class="seg" id="layer-seg" role="tablist" aria-label="Map layer">
+        <button role="tab" data-layer="t2m" aria-selected="true">
+          <svg viewBox="0 0 16 16"><path d="M8 2.200a1.800 1.800 0 0 0-1.800 1.800v5.100a3 3 0 1 0 3.600 0V4A1.800 1.800 0 0 0 8 2.200z" fill="none" stroke="currentColor" stroke-width="1.300"/><circle cx="8" cy="11.300" r="1.300" fill="currentColor"/></svg>
+          <span>Temperature</span><small>2 m</small>
+        </button>
+        <button role="tab" data-layer="wind" aria-selected="false">
+          <svg viewBox="0 0 16 16"><path d="M1.500 6h8.200a2 2 0 1 0-2-2M1.500 9h11a2 2 0 1 1-2 2M1.500 12h5" fill="none" stroke="currentColor" stroke-width="1.300" stroke-linecap="round"/></svg>
+          <span>Wind</span><small>10 m</small>
+        </button>
+      </div>
+
+      <div class="legend">
+        <div class="row-head">
+          <span id="legend-title">2 m temperature</span>
+          <span class="unit" id="legend-unit">°C</span>
+        </div>
+        <div class="legend-bar">
+          <canvas id="legend-canvas" width="256" height="1"></canvas>
+          <div id="legend-marker" hidden></div>
+        </div>
+        <div class="legend-ticks" id="legend-ticks"></div>
+      </div>
+
+      <div class="cmaps">
+        <div class="row-head">
+          <span>Colour scale</span>
+          <span class="badge" title="Every scale is perceptually uniform and checked against simulated protanopia, deuteranopia and tritanopia.">
+            <svg viewBox="0 0 16 16"><path d="M1.500 8S4 3.500 8 3.500 14.500 8 14.500 8 12 12.500 8 12.500 1.500 8 1.500 8z" fill="none" stroke="currentColor" stroke-width="1.300"/><circle cx="8" cy="8" r="1.900" fill="currentColor"/></svg>
+            colour-blind safe
+          </span>
+        </div>
+        <div class="cmap-list" id="cmap-list" role="radiogroup" aria-label="Colour scale"></div>
+      </div>
+
+      <div class="toggles">
+        <label class="switch"><input type="checkbox" id="tg-wind" checked><i></i><span>Wind flow</span><kbd>W</kbd></label>
+        <label class="switch"><input type="checkbox" id="tg-iso" checked><i></i><span>Isolines</span><kbd>I</kbd></label>
+      </div>
+    </div>
+  </header>
+
+  <div id="right-col">
+  <!-- Forecast run -->
+  <aside class="panel glass" id="panel-run">
+    <div class="seg" id="dataset-seg" role="radiogroup" aria-label="Dataset" hidden></div>
+    <div class="row-head"><span id="run-head">Forecast run</span><span class="unit" id="run-count"></span></div>
+    <div class="run-row">
+      <button class="icon-btn" id="run-prev" title="Previous run (−12 h)" aria-label="Previous run">
+        <svg viewBox="0 0 16 16"><path d="M10 3.500L5.500 8l4.500 4.500" fill="none" stroke="currentColor" stroke-width="1.600" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+      <input type="date" id="run-date" aria-label="Initialisation date">
+      <div class="seg small" id="run-hour" role="radiogroup" aria-label="Initialisation hour">
+        <button role="radio" data-h="0" aria-checked="true">00Z</button>
+        <button role="radio" data-h="12" aria-checked="false">12Z</button>
+      </div>
+      <button class="icon-btn" id="run-next" title="Next run (+12 h)" aria-label="Next run">
+        <svg viewBox="0 0 16 16"><path d="M6 3.500L10.500 8 6 12.500" fill="none" stroke="currentColor" stroke-width="1.600" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+    </div>
+    <div class="run-note" id="run-note" hidden></div>
+    <div class="row-head stories-head" id="stories-head"><span id="stories-title">Notable weather</span></div>
+    <div class="stories" id="stories"></div>
+  </aside>
+
+  <!-- Point forecast -->
+  <aside class="panel glass" id="probe" hidden>
+    <div class="row-head">
+      <span id="probe-head">Point forecast</span>
+      <button class="icon-btn" id="probe-close" title="Remove pin" aria-label="Remove pin">
+        <svg viewBox="0 0 16 16"><path d="M4 4l8 8M12 4l-8 8" fill="none" stroke="currentColor" stroke-width="1.600" stroke-linecap="round"/></svg>
+      </button>
+    </div>
+    <div class="probe-coord" id="probe-coord"></div>
+    <div class="probe-now">
+      <div class="stat"><div class="stat-v" id="probe-t">–</div><div class="stat-l">2 m temperature</div></div>
+      <div class="stat"><div class="stat-v" id="probe-w">–</div><div class="stat-l" id="probe-wl">10 m wind</div></div>
+    </div>
+    <figure class="chart" id="chart-t">
+      <figcaption><span>Temperature · °C</span><span class="readout"></span></figcaption>
+      <svg viewBox="0 0 288 92" preserveAspectRatio="none"></svg>
+    </figure>
+    <figure class="chart" id="chart-w">
+      <figcaption><span>Wind speed · m/s</span><span class="readout"></span></figcaption>
+      <svg viewBox="0 0 288 92" preserveAspectRatio="none"></svg>
+    </figure>
+  </aside>
+  </div>
+
+  <!-- Timeline -->
+  <footer class="glass" id="dock">
+    <div class="dock-top">
+      <div class="transport">
+        <button class="icon-btn" id="btn-prev" title="Previous step (←)" aria-label="Previous step">
+          <svg viewBox="0 0 16 16"><path d="M11.500 3.500v9L5 8zM4 3.500v9" fill="currentColor" stroke="currentColor" stroke-width="1.400" stroke-linejoin="round" stroke-linecap="round"/></svg>
+        </button>
+        <button id="btn-play" class="play" title="Play / pause (space)" aria-label="Play">
+          <svg class="ic-play" viewBox="0 0 16 16"><path d="M5 3.200v9.600L13 8z" fill="currentColor" stroke="currentColor" stroke-width="1.200" stroke-linejoin="round"/></svg>
+          <svg class="ic-pause" viewBox="0 0 16 16"><path d="M5 3.500v9M11 3.500v9" stroke="currentColor" stroke-width="2.600" stroke-linecap="round"/></svg>
+          <span class="spinner" aria-hidden="true"></span>
+        </button>
+        <button class="icon-btn" id="btn-next" title="Next step (→)" aria-label="Next step">
+          <svg viewBox="0 0 16 16"><path d="M4.500 3.500v9L11 8zM12 3.500v9" fill="currentColor" stroke="currentColor" stroke-width="1.400" stroke-linejoin="round" stroke-linecap="round"/></svg>
+        </button>
+      </div>
+      <div class="clock">
+        <div class="clock-main"><span id="valid-date">—</span><b id="valid-hour"></b><em>UTC</em></div>
+        <div class="clock-sub" id="clock-sub"></div>
+      </div>
+      <div class="lead">
+        <div class="lead-chip" id="lead-chip">+0 h</div>
+        <div class="clock-sub" id="lead-label">lead time</div>
+      </div>
+      <div class="seg small" id="speed-seg" role="radiogroup" aria-label="Playback speed">
+        <button role="radio" data-speed="0.5" aria-checked="false">½×</button>
+        <button role="radio" data-speed="1" aria-checked="true">1×</button>
+        <button role="radio" data-speed="2" aria-checked="false">2×</button>
+      </div>
+    </div>
+    <div class="timeline" id="timeline" role="slider" tabindex="0" aria-label="Forecast lead time" aria-valuemin="0" aria-valuemax="240" aria-valuenow="0">
+      <div class="track">
+        <div class="track-fill" id="track-fill"></div>
+        <div class="ticks" id="ticks"></div>
+        <div class="thumb" id="thumb"></div>
+        <div class="hover-tip" id="hover-tip" hidden></div>
+      </div>
+      <div class="days" id="days"></div>
+    </div>
+  </footer>
+
+  <div id="tip" class="tip glass" hidden></div>
+  <div id="toast" class="toast glass" role="status" hidden></div>
+
+  <div id="splash">
+    <div class="splash-inner">
+      <div class="rings"><i></i><i></i><i></i></div>
+      <div class="splash-title">ERA5 Forecast Explorer</div>
+      <div class="splash-sub" id="splash-sub">Connecting to the archive…</div>
+    </div>
+  </div>
+
+  <script src="https://unpkg.com/maplibre-gl@5.6.0/dist/maplibre-gl.js"></script>
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
